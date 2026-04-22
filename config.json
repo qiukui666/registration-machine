@@ -1,0 +1,23 @@
+{
+  "headless": false,
+  "proxy": null,
+  "register_interval": 30,
+  "timeout": 300,
+  "max_retries": 3,
+  "save_format": "json",
+  "accounts_file": "accounts.json",
+  "log_level": "INFO",
+  "user_agent_rotation": true,
+  "proxy_rotation": false,
+  "email_service": "random",
+  "captcha_solving": false,
+  "captcha_api_key": null,
+  "temp_mail_timeout": 180,
+  "temp_mail_check_interval": 5,
+  "domain_email": {
+    "enabled": false,
+    "domain": "your-domain.com",
+    "target_email": "your-qq-email@qq.com",
+    "qq_imap_password": "your-qq-imap-authorization-code"
+  }
+}
