@@ -1,0 +1,9 @@
+{
+  "headless": false,
+  "proxy": "http://127.0.0.1:7890",
+  "max_retries": 3,
+  "log_level": "INFO",
+  "user_agent_rotation": true,
+  "temp_mail_timeout": 180,
+  "temp_mail_check_interval": 5
+}

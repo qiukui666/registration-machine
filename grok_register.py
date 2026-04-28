@@ -11,8 +11,11 @@ import time
 from typing import Dict, Optional
 
 import requests
-import undetected_chromedriver as uc
 from fake_useragent import UserAgent
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager  # noqa: F401
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
@@ -34,8 +37,8 @@ from common import (
 class GrokRegister:
     """Grok/xAI 账号注册器"""
 
-    SIGNUP_URL = "https://x.ai/signup"
-    GROK_URL = "https://x.ai/grok"
+    SIGNUP_URL = "https://grok.com/sign-up"
+    GROK_URL = "https://grok.com/"
 
     # 可用于验证邮件的关键字
     VERIFY_KEYWORDS = ["x.ai", "grok", "verify", "confirm"]
@@ -43,7 +46,7 @@ class GrokRegister:
     def __init__(self, config: Config):
         self.config = config
         self.logger = config.logger
-        self.driver: Optional[uc.Chrome] = None
+        self.driver: Optional[webdriver.Chrome] = None
         self.max_retries = config.get("max_retries", 3)
         self._ua = UserAgent()
 
@@ -52,10 +55,10 @@ class GrokRegister:
     # ─────────────────────────────────────────────────────────────────────────
 
     def setup_driver(self, proxy: Optional[str] = None) -> bool:
-        """设置浏览器驱动"""
+        """设置浏览器驱动（WSL 标准 Selenium + webdriver-manager）"""
         for attempt in range(1, self.max_retries + 1):
             try:
-                options = uc.ChromeOptions()
+                options = Options()
 
                 if self.config.get("user_agent_rotation", True):
                     options.add_argument(f"user-agent={self._ua.random}")
@@ -74,20 +77,26 @@ class GrokRegister:
                 if proxy:
                     options.add_argument(f"--proxy-server={proxy}")
 
-                if self.config.get("headless", False):
-                    options.add_argument("--headless")
+                # WSL 无显示器，强制 headless
+                if True:
+                    options.add_argument("--headless=new")
 
-                self.driver = uc.Chrome(options=options, version_main=None)
+                # WSL Chrome 路径
+                options.binary_location = "/usr/bin/google-chrome"
+
+                # webdriver-manager 自动管理 ChromeDriver
+                svc = Service("/home/qiukui/.wdm/drivers/chromedriver/linux64/147.0.7727.117/chromedriver-linux64/chromedriver")
+                self.driver = webdriver.Chrome(service=svc, options=options)
 
                 # 强化反检测
                 self.driver.execute_script(
-                    "Object.defineProperty(navigator, 'webdriver', {get: () => false});"
-                    "Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});"
-                    "Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN','zh','en']});"
-                    "window.chrome = {runtime: {}};".replace("\n", "")
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined}); "
+                    "Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]}); "
+                    "Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN','zh','en']}); "
+                    "window.chrome = {runtime: {}};"
                 )
 
-                self.logger.info("浏览器驱动设置完成")
+                self.logger.info("浏览器驱动设置完成 (Selenium + WSL Chrome)")
                 return True
 
             except Exception as e:
@@ -160,10 +169,38 @@ class GrokRegister:
         return None
 
     def _fill_registration_form(self, email: str) -> Optional[Dict]:
-        """填写注册表单"""
+        """填写注册表单（支持 grok.com/sign-up 新 UI）"""
         try:
             wait = WebDriverWait(self.driver, 15)
-            time.sleep(random.uniform(1, 2))
+            time.sleep(random.uniform(2, 3))
+
+            # ── 处理 Cookie 弹窗 ──
+            try:
+                accept_cookie = self._find_clickable_button(wait, [
+                    (By.XPATH, "//button[contains(text(),'接受所有 Cookie')]"),
+                    (By.XPATH, "//button[contains(text(),'Accept All Cookies')]"),
+                    (By.XPATH, "//button[contains(text(),'Accept all Cookie')]"),
+                ])
+                if accept_cookie:
+                    accept_cookie.click()
+                    self.logger.info("Cookie 弹窗已接受")
+                    time.sleep(1)
+            except Exception:
+                pass  # 无 Cookie 弹窗也继续
+
+            # ── 点击"使用邮箱注册"（新 UI） ──
+            try:
+                email_reg_btn = self._find_clickable_button(wait, [
+                    (By.XPATH, "//button[contains(text(),'使用邮箱注册')]"),
+                    (By.XPATH, "//button[contains(text(),'Sign up with Email')]"),
+                    (By.XPATH, "//button[contains(text(),'Register with Email')]"),
+                ])
+                if email_reg_btn:
+                    email_reg_btn.click()
+                    self.logger.info("已点击邮箱注册")
+                    time.sleep(2)
+            except Exception:
+                pass  # 没有邮箱注册按钮也继续（旧 UI 直接就是表单）
 
             # ── 定位并填写邮箱 ──
             email_input = self._find_element(wait, [
@@ -176,21 +213,22 @@ class GrokRegister:
 
             if not email_input:
                 self.logger.error("无法定位邮箱输入框")
+                self._log_page_errors()
                 return None
 
             self._human_type(email_input, email)
 
-            # ── 点击继续/注册按钮 ──
+            # ── 点击注册/继续按钮 ──
             continue_btn = self._find_clickable_button(wait, [
                 (By.CSS_SELECTOR, "button[type='submit']"),
                 (By.XPATH, "//button[contains(text(), 'Continue')]"),
-                (By.XPATH, "//button[contains(text(), 'Get Started')]"),
+                (By.XPATH, "//button[contains(text(), '注册')]"),
                 (By.XPATH, "//button[contains(text(), 'Sign up')]"),
             ])
 
             if continue_btn:
                 continue_btn.click()
-                time.sleep(random.uniform(1.5, 2.5))
+                time.sleep(random.uniform(2, 3))
 
             # ── 填写密码 ──
             password = self.generate_password()
@@ -203,11 +241,13 @@ class GrokRegister:
 
             if password_input:
                 self._human_type(password_input, password)
+                time.sleep(0.5)
 
                 # 提交
                 submit_btn = self._find_clickable_button(wait, [
                     (By.CSS_SELECTOR, "button[type='submit']"),
                     (By.XPATH, "//button[contains(text(), 'Create')]"),
+                    (By.XPATH, "//button[contains(text(), '注册')]"),
                     (By.XPATH, "//button[contains(text(), 'Sign up')]"),
                     (By.XPATH, "//button[contains(text(), 'Continue')]"),
                 ])
